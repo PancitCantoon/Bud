@@ -8,9 +8,9 @@ def home():
     return "Bot is alive and running!"
 
 def run():
-    # Render will automatically assign a port
     app.run(host='0.0.0.0', port=8080)
 
-def keep_alive():
+# THIS FUNCTION MUST BE NAMED EXACTLY bud_alive
+def bud_alive():
     t = Thread(target=run)
     t.start()

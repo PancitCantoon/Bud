@@ -39,7 +39,7 @@ async def leave(ctx):
         await ctx.send("I'm not in a voice channel right now.")
 
 # Start the background web server
-keep_alive()
+bud_alive()
 
 # Get the token from Render's Environment Variables safely
 TOKEN = os.getenv('DISCORD_TOKEN')

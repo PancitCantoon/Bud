@@ -25,7 +25,7 @@ async def join(ctx):
             return await ctx.send(f"Moved to {channel.name}.")
 
         await channel.connect()
-        await ctx.send(f"Joined {channel.name} and staying AFK.")
+        await ctx.send(f"Joined {channel.name}. I gotchu, bud.")
     else:
         await ctx.send("You need to be in a voice channel first so I know where to go!")
 

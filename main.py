@@ -1,7 +1,7 @@
 import os
 import discord
 from discord.ext import commands
-from keep_alive import keep_alive
+from bud_alive import bud_alive
 
 # Enable necessary intents
 intents = discord.Intents.default()
@@ -12,7 +12,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user} - Ready to join calls!')
+    print(f'Logged in as {bot.user} ')
 
 @bot.command()
 async def join(ctx):

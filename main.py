@@ -63,15 +63,23 @@ async def on_voice_state_update(member, before, after):
     if member.id == bot.user.id:
         return
 
-    # 1. Auto-join: If a user joins a channel alone and the bot isn't connected anywhere
-    if after.channel is not None and not bot.voice_clients:
-        real_users = [m for m in after.channel.members if not m.bot]
-        if len(real_users) == 1:
-            try:
-                await after.channel.connect()
-                return
-            except Exception as e:
-                print(f"Can't join channel: {e}")
+    # 1. Auto-join: If a user is now in a channel alone and the bot isn't connected anywhere in this guild
+    if after.channel is not None:
+        # Check if the bot is already connected in this specific server
+        bot_in_guild = discord.utils.get(bot.voice_clients, guild=member.guild)
+        if not bot_in_guild:
+            real_users = [m for m in after.channel.members if not m.bot]
+            if len(real_users) == 1:
+                try:
+                    voice_client = await after.channel.connect()
+                    
+                    # Check if the user left behind solo needs an AFK timer right away
+                    SPECIAL_ROLE_ID = SERVER_ROLES.get(guild_id)
+                    task = bot.loop.create_task(afk_countdown(voice_client, after.channel, SPECIAL_ROLE_ID))
+                    afk_timers[guild_id] = {'task': task, 'channel_id': after.channel.id}
+                    return
+                except Exception as e:
+                    print(f"Can't join {e} :(")
 
     # 2. Check current bot voice connections for leaving/timer rules
     for voice_client in list(bot.voice_clients):

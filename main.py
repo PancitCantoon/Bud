@@ -15,45 +15,78 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Dictionary to track ongoing timers: {guild_id: {'task': asyncio.Task, 'channel_id': int}}
 afk_timers = {}
 
-# Server-specific role IDs dictionary: {guild_id: role_id}
-SERVER_ROLES = {
-    1270774305705427014: 1543417376815579226, 
-    1522593521096196256: 1543422556646932590  
+# Server configurations: {guild_id: {"role_id": int, "channel_id": int}}
+SERVER_CONFIGS = {
+    1270774305705427014: {
+        "role_id": 1543417376815579226, 
+        "channel_id": 1436411405640405082
+    },  
+    1522593521096196256: {
+        "role_id": 1543422556646932590, 
+        "channel_id": 1524063080290713711
+    }   
 }
 
-async def afk_countdown(voice_client, channel, special_role_id):
+async def afk_countdown(voice_client, channel, config):
     try:
-        # Wait 20 minutes
+        guild = channel.guild
+        special_role_id = config.get("role_id") if config else None
+        target_channel_id = config.get("channel_id") if config else None
+
+        # Wait 20 minutes 
         await asyncio.sleep(1200)
         
-        # Verify that bud is still in the same channel and it's ONLY bud in the call
+        # Verify that bud is still in the same channel and it's ONLY the bot
         real_users = [m for m in channel.members if not m.bot]
         if voice_client.is_connected() and voice_client.channel == channel and len(real_users) == 0:
-            text_channel = discord.utils.get(channel.guild.text_channels, name="general")
+            text_channel = guild.get_channel(target_channel_id) if target_channel_id else None
             if not text_channel:
-                text_channel = channel.guild.text_channels[0] if channel.guild.text_channels else None
+                text_channel = discord.utils.get(guild.text_channels, name="general") or (guild.text_channels[0] if guild.text_channels else None)
 
             if text_channel:
                 role_mention = f"<@&{special_role_id}>" if special_role_id else "@everyone"
                 await text_channel.send(f"{role_mention} Bud has been getting sleepy! Someone needs to join within 10 minutes or the call will disconnect")
 
-        # Wait the remaining 10 minutes (600 seconds)
+        # Wait the remaining 10 minutes
         await asyncio.sleep(600)
 
         # Final check: if still connected and still empty, disconnect
         real_users_final = [m for m in channel.members if not m.bot]
         if voice_client.is_connected() and voice_client.channel == channel and len(real_users_final) == 0:
-            text_channel = discord.utils.get(channel.guild.text_channels, name="general") or (channel.guild.text_channels[0] if channel.guild.text_channels else None)
+            text_channel = guild.get_channel(target_channel_id) if target_channel_id else None
+            if not text_channel:
+                text_channel = discord.utils.get(guild.text_channels, name="general") or (guild.text_channels[0] if guild.text_channels else None)
             if text_channel:
                 await text_channel.send("30 minutes are up. Bud is going for a nap")
             await voice_client.disconnect()
 
     except asyncio.CancelledError:
         pass
-
+        
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+    
+    # Broadcast update patch notes to all configured servers upon startup
+    for guild_id, config in SERVER_CONFIGS.items():
+        guild = bot.get_guild(guild_id)
+        if guild:
+            target_channel_id = config.get("channel_id")
+            text_channel = guild.get_channel(target_channel_id) if target_channel_id else None
+            if not text_channel:
+                text_channel = discord.utils.get(guild.text_channels, name="general") or (guild.text_channels[0] if guild.text_channels else None)
+            
+            if text_channel:
+                patch_notes = (
+                    "**Bud Update: What's new and what's changed**\n\n"
+                    "• **Auto-Join:** Bud will now automatically jump into a voice channel the second someone joins it completely solo or when someone is left alone.\n"
+                    "• **Auto-Leave:** If a second user joins the call, Bud immediately leaves.\n"
+                    "• **30-Minute AFK Fail-Safe:** If everyone leaves and Bud is alone in an empty channel, a 30-minute timer starts. At 20 minutes, it sends a warning, and at 30 minutes, it promptly disconnects."
+                )
+                try:
+                    await text_channel.send(patch_notes)
+                except Exception as e:
+                    print(f"Could not send patch notes to guild {guild.name}: {e}")
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -63,23 +96,17 @@ async def on_voice_state_update(member, before, after):
     if member.id == bot.user.id:
         return
 
-    # 1. Auto-join: If a user is now in a channel alone and the bot isn't connected anywhere in this guild
+    # 1. Auto-join: If a user is now in a channel alone and the bot isn't connected in this guild
     if after.channel is not None:
-        # Check if the bot is already connected in this specific server
         bot_in_guild = discord.utils.get(bot.voice_clients, guild=member.guild)
         if not bot_in_guild:
             real_users = [m for m in after.channel.members if not m.bot]
             if len(real_users) == 1:
                 try:
-                    voice_client = await after.channel.connect()
-                    
-                    # Check if the user left behind solo needs an AFK timer right away
-                    SPECIAL_ROLE_ID = SERVER_ROLES.get(guild_id)
-                    task = bot.loop.create_task(afk_countdown(voice_client, after.channel, SPECIAL_ROLE_ID))
-                    afk_timers[guild_id] = {'task': task, 'channel_id': after.channel.id}
+                    await after.channel.connect()
                     return
                 except Exception as e:
-                    print(f"Can't join {e} :(")
+                    print(f"Could not auto-join channel: {e}")
 
     # 2. Check current bot voice connections for leaving/timer rules
     for voice_client in list(bot.voice_clients):
@@ -103,9 +130,8 @@ async def on_voice_state_update(member, before, after):
         # If everyone left and it is now ONLY the bot in the channel, start the 30-min timer
         if len(real_users_in_channel) == 0:
             if guild_id not in afk_timers:
-                # Look up the specific role ID for this server, default to None if not listed
-                special_role_id = SERVER_ROLES.get(guild_id)
-                task = bot.loop.create_task(afk_countdown(voice_client, channel, special_role_id))
+                config = SERVER_CONFIGS.get(guild_id)
+                task = bot.loop.create_task(afk_countdown(voice_client, channel, config))
                 afk_timers[guild_id] = {'task': task, 'channel_id': channel.id}
         else:
             # If someone is still in the channel with the bot, cancel any active countdown

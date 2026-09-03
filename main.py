@@ -45,7 +45,10 @@ async def afk_countdown(voice_client, channel, config):
 
             if text_channel:
                 role_mention = f"<@&{special_role_id}>" if special_role_id else "@everyone"
-                await text_channel.send(f"{role_mention} Bud has been getting sleepy! Someone needs to join within 10 minutes or the call will disconnect")
+                try:
+                    await text_channel.send(f"{role_mention} Bud has been getting sleepy! Someone needs to join within 10 minutes or the call will disconnect")
+                except discord.errors.HTTPException as e:
+                    print(f"Failed to send 20-min warning due to rate limit: {e}")
 
         # Wait the remaining 10 minutes
         await asyncio.sleep(600)
@@ -57,8 +60,13 @@ async def afk_countdown(voice_client, channel, config):
             if not text_channel:
                 text_channel = discord.utils.get(guild.text_channels, name="general") or (guild.text_channels[0] if guild.text_channels else None)
             if text_channel:
-                await text_channel.send("30 minutes are up. Bud is going for a nap")
+                try:
+                    await text_channel.send("30 minutes are up. Bud is going for a nap")
+                except discord.errors.HTTPException as e:
+                    print(f"Failed to send final disconnect message due to rate limit: {e}")
             await voice_client.disconnect()
+            if guild.id in afk_timers:
+                del afk_timers[guild.id]
 
     except asyncio.CancelledError:
         pass
@@ -82,7 +90,12 @@ async def on_voice_state_update(member, before, after):
             real_users_left_behind = [m for m in before.channel.members if not m.bot]
             if len(real_users_left_behind) == 1:
                 try:
-                    await before.channel.connect()
+                    voice_client = await before.channel.connect()
+                    config = SERVER_CONFIGS.get(guild_id)
+                    if guild_id in afk_timers:
+                        afk_timers[guild_id]['task'].cancel()
+                    task = bot.loop.create_task(afk_countdown(voice_client, before.channel, config))
+                    afk_timers[guild_id] = {'task': task, 'channel_id': before.channel.id}
                     return
                 except Exception as e:
                     print(f"Can't join channel upon user leaving {e} :(")
@@ -94,7 +107,12 @@ async def on_voice_state_update(member, before, after):
             real_users = [m for m in after.channel.members if not m.bot]
             if len(real_users) == 1:
                 try:
-                    await after.channel.connect()
+                    voice_client = await after.channel.connect()
+                    config = SERVER_CONFIGS.get(guild_id)
+                    if guild_id in afk_timers:
+                        afk_timers[guild_id]['task'].cancel()
+                    task = bot.loop.create_task(afk_countdown(voice_client, after.channel, config))
+                    afk_timers[guild_id] = {'task': task, 'channel_id': after.channel.id}
                     return
                 except Exception as e:
                     print(f"Can't join channel {e} :(")
@@ -133,6 +151,7 @@ async def on_voice_state_update(member, before, after):
 @bot.command()
 async def join(ctx):
     """Joins the voice channel you are currently in."""
+    guild_id = ctx.guild.id
     if ctx.author.voice:
         channel = ctx.author.voice.channel
 
@@ -140,8 +159,16 @@ async def join(ctx):
             await ctx.voice_client.move_to(channel)
             return await ctx.send("I got you, bud")
 
-        await channel.connect()
+        voice_client = await channel.connect()
         await ctx.send("I got you, bud")
+
+        real_users = [m for m in channel.members if not m.bot]
+        if len(real_users) <= 1:
+            if guild_id in afk_timers:
+                afk_timers[guild_id]['task'].cancel()
+            config = SERVER_CONFIGS.get(guild_id)
+            task = bot.loop.create_task(afk_countdown(voice_client, channel, config))
+            afk_timers[guild_id] = {'task': task, 'channel_id': channel.id}
     else:
         await ctx.send("You need to be in a voice channel first, bud")
 

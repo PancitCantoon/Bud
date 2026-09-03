@@ -66,27 +66,6 @@ async def afk_countdown(voice_client, channel, config):
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
-    
-    # Broadcast update patch notes to all configured servers upon startup
-    for guild_id, config in SERVER_CONFIGS.items():
-        guild = bot.get_guild(guild_id)
-        if guild:
-            target_channel_id = config.get("channel_id")
-            text_channel = guild.get_channel(target_channel_id) if target_channel_id else None
-            if not text_channel:
-                text_channel = discord.utils.get(guild.text_channels, name="general") or (guild.text_channels[0] if guild.text_channels else None)
-            
-            if text_channel:
-                patch_notes = (
-                    "**Bud Update: What's new and what's changed**\n\n"
-                    "• **Auto-Join:** Bud will now automatically jump into a voice channel the second someone joins it completely solo or when someone is left alone.\n"
-                    "• **Auto-Leave:** If a second user joins the call, Bud immediately leaves.\n"
-                    "• **30-Minute AFK Fail-Safe:** If everyone leaves and Bud is alone in an empty channel, a 30-minute timer starts. At 20 minutes, it sends a warning, and at 30 minutes, it promptly disconnects."
-                )
-                try:
-                    await text_channel.send(patch_notes)
-                except Exception as e:
-                    print(f"Could not send patch notes to guild {guild.name}: {e}")
 
 @bot.event
 async def on_voice_state_update(member, before, after):

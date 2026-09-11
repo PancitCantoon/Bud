@@ -134,7 +134,8 @@ async def afk_countdown(voice_client, channel, config):
     try:
         guild = channel.guild
         special_role_id = config.get("role_id") if config else None
-        target_channel_id = config.get("channel_id") if config else None
+        channel_ids = config.get("channel_ids", []) if config else []
+        target_channel_id = channel_ids[0] if channel_ids else None
  
         await asyncio.sleep(1200)
         
@@ -213,7 +214,7 @@ async def on_voice_state_update(member, before, after):
 
     if after.channel is not None:
         bot_in_guild = discord.utils.get(bot.voice_clients, guild=member.guild)
-        if not bot_in_guild and allowed_channel_id and after.channel.id == allowed_channel_id:
+        if not bot_in_guild and after.channel.id in allowed_channel_ids:
             real_users = [m for m in after.channel.members if not m.bot]
             if len(real_users) == 1:
                 try:

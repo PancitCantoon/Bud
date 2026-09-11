@@ -16,11 +16,11 @@ afk_timers = {}
 SERVER_CONFIGS = {
     1270774305705427014: {
         "role_id": 1543417376815579226, 
-        "channel_id": 1436411405640405082
+        "channel_ids": [1270774306284245025, 1507383877260279929, 1436411405640405082]
     },  
     1522593521096196256: {
         "role_id": 1543422556646932590, 
-        "channel_id": 1524063080290713711
+        "channel_ids": [1524063080290713711, 1522593521616420931]
     }   
 }
 
@@ -192,15 +192,17 @@ async def on_voice_state_update(member, before, after):
 
     if member.id == bot.user.id:
         return
+        
+    config = SERVER_CONFIGS.get(guild_id)
+    allowed_channel_ids = config.get("channel_ids", []) if config else []
 
     if before.channel is not None and before.channel != after.channel:
         bot_in_guild = discord.utils.get(bot.voice_clients, guild=member.guild)
-        if not bot_in_guild:
+        if not bot_in_guild and before.channel.id in allowed_channel_ids:
             real_users_left_behind = [m for m in before.channel.members if not m.bot]
             if len(real_users_left_behind) == 1:
                 try:
                     voice_client = await before.channel.connect()
-                    config = SERVER_CONFIGS.get(guild_id)
                     if guild_id in afk_timers:
                         afk_timers[guild_id]['task'].cancel()
                     task = bot.loop.create_task(afk_countdown(voice_client, before.channel, config))
@@ -211,12 +213,11 @@ async def on_voice_state_update(member, before, after):
 
     if after.channel is not None:
         bot_in_guild = discord.utils.get(bot.voice_clients, guild=member.guild)
-        if not bot_in_guild:
+        if not bot_in_guild and allowed_channel_id and after.channel.id == allowed_channel_id:
             real_users = [m for m in after.channel.members if not m.bot]
             if len(real_users) == 1:
                 try:
                     voice_client = await after.channel.connect()
-                    config = SERVER_CONFIGS.get(guild_id)
                     if guild_id in afk_timers:
                         afk_timers[guild_id]['task'].cancel()
                     task = bot.loop.create_task(afk_countdown(voice_client, after.channel, config))
@@ -247,7 +248,6 @@ async def on_voice_state_update(member, before, after):
 
         if len(real_users_in_channel) == 0:
             if guild_id not in afk_timers:
-                config = SERVER_CONFIGS.get(guild_id)
                 task = bot.loop.create_task(afk_countdown(voice_client, channel, config))
                 afk_timers[guild_id] = {'task': task, 'channel_id': channel.id}
         else:

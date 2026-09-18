@@ -113,7 +113,7 @@ async def update_voice_channel_status(channel, bot_token):
                 seen_emojis.add(emoji)
                 emoji_lineup.append(emoji)
 
-    status_text = " ".join(emoji_lineup) if emoji_lineup else ""
+    status_text = "".join(emoji_lineup) if emoji_lineup else ""
 
     url = f"https://discord.com/api/v10/channels/{channel.id}/voice-status"
     headers = {

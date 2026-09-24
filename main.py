@@ -87,6 +87,7 @@ TARGET_VOICE_CHANNEL_IDS = {
     1522597436336509039,
     1434565402318602250,
     1536564360225361960,
+    1552638153721122966,
 }
 
 async def update_voice_channel_status(channel, bot_token):

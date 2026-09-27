@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import datetime
+import shutil
 import discord
 from discord.ext import commands, tasks
 from bud_alive import bud_alive
@@ -14,7 +15,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-TEST_DURATION_SECONDS = 360
+TEST_DURATION_SECONDS = 360  # Exactly 6 minutes (6 * 60)
 # (When you're ready for the full 1,000 hours, change this to: 1000 * 3600 = 3600000)
 
 SONG_DURATION_SECONDS = 276  
@@ -108,6 +109,15 @@ TARGET_VOICE_CHANNEL_IDS = {
     1434565402318602250,
     1536564360225361960,
 }
+
+def check_ffmpeg():
+    if shutil.which("ffmpeg") is None:
+        print("--------------------------------------------------")
+        print("CRITICAL ERROR: 'ffmpeg' is NOT installed on this system!")
+        print("Audio playback will fail. Please add FFmpeg via Nixpacks.")
+        print("--------------------------------------------------", flush=True)
+    else:
+        print("SUCCESS: 'ffmpeg' binary detected on system.", flush=True)
 
 def load_session_data():
     if os.path.exists(SESSION_FILE):
@@ -304,6 +314,7 @@ async def check_voice_duration():
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+    check_ffmpeg()  # Checks right away on startup!
     if not check_voice_duration.is_running():
         check_voice_duration.start()
 

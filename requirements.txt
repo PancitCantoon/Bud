@@ -3,3 +3,4 @@ PyNaCl
 Flask
 davey
 httpx
+yt-dlp

@@ -6,7 +6,6 @@ import discord
 from discord.ext import commands, tasks
 from bud_alive import bud_alive
 import httpx
-import yt_dlp
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -18,8 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 TEST_DURATION_SECONDS = 600 - 8
 # (When you're ready for the full 1,000 hours, change this to: 1000 * 3600 = 3600000)
 
-SONG_URL = "https://www.youtube.com/watch?v=qQzdAsjWGPg"  
-SONG_DURATION_SECONDS = 276 
+SONG_DURATION_SECONDS = 276  
 
 TEST_CHANNEL_ID = 1552638153721122966         
 ANNOUNCEMENT_CHANNEL_ID = 1436411405640405082  
@@ -27,17 +25,11 @@ PING_ROLE_ID = 1553673496708513812
 
 SESSION_FILE = "call_session.json"
 
-YDL_OPTIONS = {
-    'format': 'bestaudio/best',
-    'noplaylist': True,
-}
-
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn'
 }
 
-# --- STATUS & AFK CONFIGURATION (MAIN CHANNEL EXCLUDED) ---
 afk_timers = {}
 
 SERVER_CONFIGS = {
@@ -92,7 +84,7 @@ ROSTER_ORDER = [
     1044206400068407307,   
     960825861098057738,    
     1099539902099624016,   
-    950039694274617375,    
+    950039694274617375,   
     1285187681315192847,   
     865740000557006848,    
     720141452000231465,    
@@ -117,7 +109,6 @@ TARGET_VOICE_CHANNEL_IDS = {
     1536564360225361960,
 }
 
-# --- SESSION HELPER FUNCTIONS ---
 def load_session_data():
     if os.path.exists(SESSION_FILE):
         try:
@@ -145,7 +136,6 @@ def clear_session():
         except Exception:
             pass
 
-# --- STATUS UPDATE LOGIC ---
 async def update_voice_channel_status(channel, bot_token):
     if channel.id not in TARGET_VOICE_CHANNEL_IDS:
         return
@@ -266,21 +256,9 @@ async def check_voice_duration():
 
     if not song_triggered and remaining_seconds <= SONG_DURATION_SECONDS:
         set_song_triggered_flag()
-        print("Song window reached! Extracting and triggering audio...")
+        print("Song window reached! Triggering local audio...")
         
         text_channel = target_channel.guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
-
-        audio_url = None
-        try:
-            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(SONG_URL, download=False)
-                audio_url = info['url']
-        except Exception as e:
-            print(f"Failed to extract audio from YouTube: {e}")
-            return
-
-        if not audio_url:
-            return
 
         if text_channel:
             try:
@@ -289,7 +267,6 @@ async def check_voice_duration():
             except Exception as e:
                 print(f"Failed to send text announcement: {e}")
 
-        
         voice_client = None
         try:
             voice_client = await target_channel.connect()
@@ -298,7 +275,7 @@ async def check_voice_duration():
             return
 
         try:
-            source = discord.FFmpegPCMAudio(audio_url, **FFMPEG_OPTIONS)
+            source = discord.FFmpegPCMAudio('my_way.mp3', **FFMPEG_OPTIONS)
             voice_client.play(source)
             
             while voice_client.is_playing() and voice_client.is_connected():
@@ -306,7 +283,6 @@ async def check_voice_duration():
                 
         except Exception as e:
             print(f"Failed to stream audio: {e}")
-
 
     if elapsed_seconds >= TEST_DURATION_SECONDS:
         print("Thank you for taking care of me. Goodnight!")

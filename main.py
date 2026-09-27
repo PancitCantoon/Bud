@@ -14,7 +14,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-TEST_DURATION_SECONDS = 600
+TEST_DURATION_SECONDS = 360
 # (When you're ready for the full 1,000 hours, change this to: 1000 * 3600 = 3600000)
 
 SONG_DURATION_SECONDS = 276  

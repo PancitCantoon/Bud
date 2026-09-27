@@ -1,27 +1,55 @@
 import asyncio
 import os
+import json
+import datetime
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from bud_alive import bud_alive
 import httpx
+import yt_dlp
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+TEST_DURATION_SECONDS = 1200 
+# (When you're ready for the full 1,000 hours, change this to: 1000 * 3600 = 3600000)
+
+SONG_URL = "https://www.youtube.com/watch?v=qQzdAsjWGPg"  
+SONG_DURATION_SECONDS = 276 
+
+TEST_CHANNEL_ID = 1552638153721122966         
+ANNOUNCEMENT_CHANNEL_ID = 1436411405640405082  
+PING_ROLE_ID = 1553673496708513812             
+
+SESSION_FILE = "call_session.json"
+
+YDL_OPTIONS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+}
+
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn'
+}
+
+# --- STATUS & AFK CONFIGURATION (MAIN CHANNEL EXCLUDED) ---
 afk_timers = {}
 
 SERVER_CONFIGS = {
     1270774305705427014: {
         "role_id": 1543417376815579226, 
-        "channel_ids": [1270774306284245025, 1507383877260279929, 1436411405640405082]
+        # MAIN CHANNEL (1270774306284245025) IS COMPLETELY EXCLUDED HERE
+        "channel_ids": [1552638153721122966, 1507383877260279929, 1436411405640405082]
     },  
     1522593521096196256: {
         "role_id": 1543422556646932590, 
         "channel_ids": [1524063080290713711, 1522593521616420931]
-    }   
+    }    
 }
 
 MEMBER_EMOJIS = {
@@ -55,20 +83,20 @@ ROSTER_ORDER = [
     513423712582762502,
     411916947773587456,
     1522286617237262413,
-    495109290487709697,   
-    919210874663747584,   
-    708998163859767376,   
-    242629532580839424,   
-    566632140410716160,   
-    824157691924447253,   
-    1044206400068407307,  
-    960825861098057738,   
-    1099539902099624016,  
-    950039694274617375,   
-    1285187681315192847,  
-    865740000557006848,   
-    720141452000231465,   
-    678432766236426241,   
+    495109290487709697,    
+    919210874663747584,    
+    708998163859767376,    
+    242629532580839424,    
+    566632140410716160,    
+    824157691924447253,    
+    1044206400068407307,   
+    960825861098057738,    
+    1099539902099624016,   
+    950039694274617375,    
+    1285187681315192847,   
+    865740000557006848,    
+    720141452000231465,    
+    678432766236426241,    
     709228195869622292,
     835982359622189097,
 ]
@@ -81,15 +109,43 @@ ALT_TO_MAIN = {
 }
 
 TARGET_VOICE_CHANNEL_IDS = {
-    1270774306284245025,
+    TEST_CHANNEL_ID,
     1480198294369075271,
     1507383877260279929,
     1522597436336509039,
     1434565402318602250,
     1536564360225361960,
-    1552638153721122966,
 }
 
+# --- SESSION HELPER FUNCTIONS ---
+def load_session_data():
+    if os.path.exists(SESSION_FILE):
+        try:
+            with open(SESSION_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
+
+def save_session_data(dt, song_triggered=False):
+    with open(SESSION_FILE, "w") as f:
+        json.dump({"start_time": dt.isoformat(), "song_triggered": song_triggered}, f)
+
+def set_song_triggered_flag():
+    data = load_session_data()
+    if data:
+        data["song_triggered"] = True
+        with open(SESSION_FILE, "w") as f:
+            json.dump(data, f)
+
+def clear_session():
+    if os.path.exists(SESSION_FILE):
+        try:
+            os.remove(SESSION_FILE)
+        except Exception:
+            pass
+
+# --- STATUS UPDATE LOGIC ---
 async def update_voice_channel_status(channel, bot_token):
     if channel.id not in TARGET_VOICE_CHANNEL_IDS:
         return
@@ -177,10 +233,103 @@ async def afk_countdown(voice_client, channel, config):
 
     except asyncio.CancelledError:
         pass
+
+@tasks.loop(seconds=2)
+async def check_voice_duration():
+    target_channel = bot.get_channel(TEST_CHANNEL_ID)
+    if not target_channel:
+        return
+
+    real_users = [m for m in target_channel.members if not m.bot]
+
+    if not real_users:
+        if os.path.exists(SESSION_FILE):
+            print("Voice channel is completely empty. Resetting session timer.")
+            clear_session()
+        return
+
+    session_data = load_session_data()
+    
+    if session_data is None:
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        save_session_data(now_utc, song_triggered=False)
+        session_start = now_utc
+        print(f"Initialized new marathon session anchor at: {session_start}")
+    else:
+        session_start = datetime.datetime.fromisoformat(session_data["start_time"])
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    elapsed_seconds = (now - session_start).total_seconds()
+    remaining_seconds = TEST_DURATION_SECONDS - elapsed_seconds
+
+    song_triggered = session_data.get("song_triggered", False) if session_data else False
+
+    if not song_triggered and remaining_seconds <= SONG_DURATION_SECONDS:
+        set_song_triggered_flag()
+        print("Song window reached! Extracting and triggering audio...")
         
+        text_channel = target_channel.guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
+
+        audio_url = None
+        try:
+            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(SONG_URL, download=False)
+                audio_url = info['url']
+        except Exception as e:
+            print(f"Failed to extract audio from YouTube: {e}")
+            return
+
+        if not audio_url:
+            return
+
+        if text_channel:
+            try:
+                role_mention = f"<@&{PING_ROLE_ID}>"
+                await text_channel.send(f"{role_mention} And now, the end is near...")
+            except Exception as e:
+                print(f"Failed to send text announcement: {e}")
+
+        
+        voice_client = None
+        try:
+            voice_client = await target_channel.connect()
+        except Exception as e:
+            print(f"Failed to connect to voice: {e}")
+            return
+
+        try:
+            source = discord.FFmpegPCMAudio(audio_url, **FFMPEG_OPTIONS)
+            voice_client.play(source)
+            
+            while voice_client.is_playing() and voice_client.is_connected():
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            print(f"Failed to stream audio: {e}")
+
+
+    if elapsed_seconds >= TEST_DURATION_SECONDS:
+        print("Thank you for taking care of me. Goodnight!")
+        
+        voice_client = discord.utils.get(bot.voice_clients, guild=target_channel.guild)
+
+        for member in target_channel.members:
+            if not member.bot:
+                try:
+                    await member.move_to(None)
+                except Exception as e:
+                    print(f"Could not kick {member.name}: {e}")
+
+        if voice_client and voice_client.is_connected():
+            await voice_client.disconnect()
+
+        clear_session()
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+    if not check_voice_duration.is_running():
+        check_voice_duration.start()
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -256,22 +405,45 @@ async def on_voice_state_update(member, before, after):
             if guild_id in afk_timers:
                 afk_timers[guild_id]['task'].cancel()
                 del afk_timers[guild_id]
-                
+
+@bot.command(name="sync")
+async def sync_call(ctx, hours: int = 0, minutes: int = 0, seconds: int = 0):
+    """Usage: !sync <hours> <minutes> <seconds> (e.g., !sync 0 5 0)"""
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    
+    session_start = now_utc - datetime.timedelta(
+        hours=hours, 
+        minutes=minutes, 
+        seconds=seconds
+    )
+    
+    existing_data = load_session_data()
+    song_triggered = existing_data.get("song_triggered", False) if existing_data else False
+    
+    save_session_data(session_start, song_triggered=song_triggered)
+    
+    elapsed = (now_utc - session_start).total_seconds()
+    remaining = TEST_DURATION_SECONDS - elapsed
+    
+    await ctx.send(
+        f"Woah! This long already?\n"
+    )
+    print(f"Manually synced via command by {ctx.author}: start time {session_start}")
+
 @bot.command()
 async def join(ctx):
-    """Joins the voice channel you are currently in."""
+    """Joins the voice channel you are currently in with safe restrictions."""
     guild_id = ctx.guild.id
     TOKEN = os.getenv('DISCORD_TOKEN')
+    
+    config = SERVER_CONFIGS.get(guild_id)
+    allowed_channel_ids = config.get("channel_ids", []) if config else []
+
     if ctx.author.voice:
         channel = ctx.author.voice.channel
-
-        if ctx.voice_client is not None:
-            old_channel = ctx.voice_client.channel
-            await ctx.voice_client.move_to(channel)
-            if old_channel:
-                await update_voice_channel_status(old_channel, TOKEN)
-            await update_voice_channel_status(channel, TOKEN)
-            return await ctx.send("I got you, bud")
+        
+        if channel.id not in allowed_channel_ids or ctx.voice_client is not None:
+            return await ctx.send("Oops! The soil there isn't right for me right now!")
 
         voice_client = await channel.connect()
         await update_voice_channel_status(channel, TOKEN)
@@ -281,7 +453,6 @@ async def join(ctx):
         if len(real_users) <= 1:
             if guild_id in afk_timers:
                 afk_timers[guild_id]['task'].cancel()
-            config = SERVER_CONFIGS.get(guild_id)
             task = bot.loop.create_task(afk_countdown(voice_client, channel, config))
             afk_timers[guild_id] = {'task': task, 'channel_id': channel.id}
     else:
@@ -310,7 +481,7 @@ async def refreshstatus(ctx):
     if ctx.author.voice and ctx.author.voice.channel:
         TOKEN = os.getenv('DISCORD_TOKEN')
         await update_voice_channel_status(ctx.author.voice.channel, TOKEN)
-        await ctx.send("Status refreshed, bud!", delete_after=5)
+        await ctx.send("Status refreshed!", delete_after=5)
     else:
         await ctx.send("You need to be in a voice channel first, bud")
 

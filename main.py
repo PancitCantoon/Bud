@@ -15,14 +15,13 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-TEST_DURATION_SECONDS = 360  # Exactly 6 minutes (6 * 60)
-# (When you're ready for the full 1,000 hours, change this to: 1000 * 3600 = 3600000)
+TEST_DURATION_SECONDS = 1000 * 3600
 
 SONG_DURATION_SECONDS = 276  
 
-TEST_CHANNEL_ID = 1552638153721122966         
-ANNOUNCEMENT_CHANNEL_ID = 1436411405640405082  
-PING_ROLE_ID = 1553673496708513812             
+TEST_CHANNEL_ID = 1270774306284245025         
+ANNOUNCEMENT_CHANNEL_ID = 1475436214130577531  
+PING_ROLE_ID = 1543417376815579226             
 
 SESSION_FILE = "call_session.json"
 
@@ -35,8 +34,7 @@ afk_timers = {}
 SERVER_CONFIGS = {
     1270774305705427014: {
         "role_id": 1543417376815579226, 
-        # MAIN CHANNEL (1270774306284245025) IS COMPLETELY EXCLUDED HERE
-        "channel_ids": [1552638153721122966, 1507383877260279929, 1436411405640405082]
+        "channel_ids": [1270774306284245025, 1436411405640405082]
     },  
     1522593521096196256: {
         "role_id": 1543422556646932590, 
@@ -113,7 +111,7 @@ def check_ffmpeg():
     if shutil.which("ffmpeg") is None:
         print("--------------------------------------------------")
         print("CRITICAL ERROR: 'ffmpeg' is NOT installed on this system!")
-        print("Audio playback will fail. Please add FFmpeg via Nixpacks.")
+        print("Audio playback will fail. Please add FFmpeg via Dockerfile.")
         print("--------------------------------------------------", flush=True)
     else:
         print("SUCCESS: 'ffmpeg' binary detected on system.", flush=True)
@@ -307,6 +305,15 @@ async def check_voice_duration():
 
         if voice_client and voice_client.is_connected():
             await voice_client.disconnect()
+
+        # Send the final announcement after she leaves
+        text_channel = target_channel.guild.get_channel(ANNOUNCEMENT_CHANNEL_ID)
+        if text_channel:
+            try:
+                role_mention = f"<@&{PING_ROLE_ID}>"
+                await text_channel.send(f"{role_mention} thank you for taking care of me. Goodnight!")
+            except Exception as e:
+                print(f"Failed to send final announcement: {e}")
 
         clear_session()
 
